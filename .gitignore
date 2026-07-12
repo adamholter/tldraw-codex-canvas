@@ -1,0 +1,11 @@
+node_modules
+.next
+.vinext
+dist
+.wrangler
+.canvas-assets
+.canvas-state.json
+.DS_Store
+*.log
+tsconfig.tsbuildinfo
+.qa-codex-canvas.png
