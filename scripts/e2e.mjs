@@ -12,7 +12,15 @@ const sidecar = process.env.CANVAS_SIDECAR_URL || "http://127.0.0.1:4317";
 if (!token) throw new Error("Set CANVAS_TOKEN to the token printed by npm run sidecar");
 const pairedUrl = `${appUrl}/#sidecar=${encodeURIComponent(sidecar)}&token=${encodeURIComponent(token)}`;
 const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+const page = await browser.newPage({
+  viewport: { width: 1440, height: 960 },
+});
+if (process.env.OAI_SITES_BYPASS_TOKEN) {
+  const siteOrigin = new URL(appUrl).origin;
+  await page.route(`${siteOrigin}/**`, async (route) => route.continue({
+    headers: { ...route.request().headers(), "OAI-Sites-Authorization": `Bearer ${process.env.OAI_SITES_BYPASS_TOKEN}` },
+  }));
+}
 const consoleErrors = [];
 page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
 page.on("pageerror", (error) => consoleErrors.push(error.message));

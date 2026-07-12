@@ -21,13 +21,13 @@ Open the `Canvas:` URL printed by the sidecar. It contains a random pairing toke
 
 ## Use the hosted canvas with your local Codex
 
-Install `cloudflared`, then keep this running:
+Keep this running:
 
 ```bash
 npm run sidecar:web -- --web-url https://YOUR-DEPLOYED-CANVAS.example
 ```
 
-Open the `Hosted canvas:` URL it prints. The helper creates an ephemeral HTTPS/WSS tunnel to the token-protected local sidecar. Closing the command closes both the sidecar and tunnel.
+Open the `Hosted canvas:` URL it prints. The helper creates an ephemeral HTTPS/WSS tunnel to the token-protected local sidecar. It prefers `cloudflared` when installed and falls back to an SSH Serveo tunnel if the anonymous Cloudflare service is unavailable. Both paths support WebSockets. Closing the command closes both the sidecar and tunnel.
 
 ## Give an agent canvas access
 
