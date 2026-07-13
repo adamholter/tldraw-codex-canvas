@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { CanvasApp } from "./canvas-app";
+import { CanvasClient } from "./canvas-client";
 
 export const metadata: Metadata = {
   title: "Codex Canvas",
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function Home() {
-  return <CanvasApp />;
+  return <CanvasClient />;
 }

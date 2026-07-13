@@ -20,6 +20,7 @@ body { background: var(--chrome); color: var(--text); font-family: var(--font-ge
 button, input, textarea { font: inherit; color: inherit; }
 .app-shell { display: grid; grid-template-columns: minmax(0, 1fr) 392px; width: 100vw; height: 100dvh; overflow: hidden; background: var(--chrome); }
 .canvas-stage { position: relative; min-width: 0; height: 100%; border-right: 1px solid var(--line); background: #fff; }
+.canvas-loading { position: absolute; inset: 0; background: #fff; }
 .sidecar-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; background: var(--panel); }
 .sidecar-header { display: flex; min-height: 53px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .sidecar-header h1 { margin: 0 0 1px; font-size: 14px; font-weight: 630; letter-spacing: -0.015em; }
