@@ -8,6 +8,8 @@ import { WebSocket, WebSocketServer } from "ws";
 import { attachCodexBridge } from "t3-code-ultralight-browser-fork/server";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const t3PackageRoot = resolve(fileURLToPath(import.meta.resolve("t3-code-ultralight-browser-fork/server")), "../..");
+const t3ChatDist = join(t3PackageRoot, "dist");
 const port = Number(readArg("--port") || process.env.CANVAS_PORT || 4317);
 const host = readArg("--host") || process.env.CANVAS_HOST || "127.0.0.1";
 const token = process.env.CANVAS_TOKEN || randomBytes(32).toString("base64url");
@@ -37,6 +39,27 @@ const server = createServer(async (request, response) => {
   if (request.method === "OPTIONS") return end(response, 204, "");
 
   if (url.pathname === "/health") return json(response, 200, { ok: true, project: "tldraw-codex-canvas", instanceId, pid: process.pid, port, canvasConnected: canvasSocket?.readyState === WebSocket.OPEN, codexPath: `/codex/${token}/ws` });
+  if (url.pathname === "/chat") {
+    if (url.searchParams.get("token") !== token) return json(response, 401, { error: "Invalid pairing token" });
+    try {
+      const html = (await readFile(join(t3ChatDist, "index.html"), "utf8"))
+        .replaceAll('src="/assets/', `src="/codex-chat-assets/`)
+        .replaceAll('.js"', `.js?token=${encodeURIComponent(token)}"`)
+        .replaceAll('href="/assets/', `href="/codex-chat-assets/`)
+        .replaceAll('.css"', `.css?token=${encodeURIComponent(token)}"`);
+      return chatResponse(response, 200, "text/html; charset=utf-8", html, false);
+    } catch (error) { return json(response, 500, { error: `T3 chat UI is unavailable: ${message(error)}` }); }
+  }
+  if (url.pathname.startsWith("/codex-chat-assets/")) {
+    if (url.searchParams.get("token") !== token) return json(response, 401, { error: "Invalid pairing token" });
+    const asset = url.pathname.slice("/codex-chat-assets/".length);
+    if (!/^[a-zA-Z0-9._-]+$/.test(asset)) return json(response, 400, { error: "Invalid chat asset" });
+    try {
+      const filePath = join(t3ChatDist, "assets", asset);
+      const data = await readFile(filePath);
+      return chatResponse(response, 200, mimeFromExtension(extname(filePath)), data, true);
+    } catch { return json(response, 404, { error: "Chat asset not found" }); }
+  }
   if (url.pathname.startsWith("/assets/")) {
     if (url.searchParams.get("token") !== token) return json(response, 401, { error: "Invalid pairing token" });
     const id = url.pathname.slice("/assets/".length);
@@ -49,6 +72,15 @@ const server = createServer(async (request, response) => {
     } catch { return json(response, 404, { error: "Asset not found" }); }
   }
   if (!isAuthorized(request, url)) return json(response, 401, { error: "Invalid pairing token" });
+  if (url.pathname === "/api/codex-status") {
+    return json(response, 200, {
+      service: "t3-code-ultralight-browser-fork",
+      status: bridge.bridge.ready ? "ready" : "starting",
+      websocketPath: `/codex/${token}/ws`,
+      allowedOrigins,
+      allowLoopbackOrigins: true,
+    });
+  }
   if (url.pathname === "/api/snapshot" && request.method === "GET") {
     return json(response, 200, url.searchParams.get("full") === "1" ? latestState : latestState.summary);
   }
@@ -167,8 +199,16 @@ function readArg(name) { const index = process.argv.indexOf(name); return index 
 function isAuthorized(request, url) { return request.headers.authorization === `Bearer ${token}` || url.searchParams.get("token") === token; }
 function end(response, status, body) { response.statusCode = status; response.end(body); }
 function json(response, status, body) { response.setHeader("Content-Type", "application/json; charset=utf-8"); end(response, status, JSON.stringify(body)); }
+function chatResponse(response, status, contentType, body, immutable) {
+  response.setHeader("Content-Type", contentType);
+  response.setHeader("Cache-Control", immutable ? "private, max-age=31536000, immutable" : "no-store");
+  response.setHeader("Content-Security-Policy", `default-src 'self'; base-uri 'none'; connect-src 'self' ws: wss:; font-src 'self' data:; frame-ancestors 'self' ${allowedOrigins.join(" ")}; img-src 'self' data: blob: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'none'`);
+  response.setHeader("Referrer-Policy", "no-referrer");
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  end(response, status, body);
+}
 function message(error) { return error instanceof Error ? error.message : String(error); }
-function mimeFromExtension(extension) { return ({ ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml" })[extension.toLowerCase()] || "application/octet-stream"; }
+function mimeFromExtension(extension) { return ({ ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml" })[extension.toLowerCase()] || "application/octet-stream"; }
 function safeExtension(name = "", mime = "") { const fromName = extname(name).toLowerCase(); if (/^\.(png|jpe?g|gif|webp|svg)$/.test(fromName)) return fromName; return ({ "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/svg+xml": ".svg" })[mime] || ".bin"; }
 async function readJson(request, max = 1024 * 1024) {
   const chunks = []; let size = 0;

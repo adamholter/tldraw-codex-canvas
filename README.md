@@ -86,6 +86,8 @@ The canvas and Codex WebSocket paths include the random pairing token, and brows
 
 ## Embed it elsewhere
 
-The reusable seam is the sidecar protocol, not the surrounding UI. An existing web app can copy the small connection module from `app/canvas-app.tsx`, connect its own tldraw `Editor`, and keep its own layout, voice controls, or canvas experience. The Codex chat client comes from `t3-code-ultralight-browser-fork`; canvas operations remain framework-independent HTTP/WebSocket messages.
+The chat panel is the actual complete `CodexChatEmbed` from `t3-code-ultralight-browser-fork`, not a local transcript approximation. It preserves separate Codex messages, reasoning, tool calls, approvals, Markdown, streaming, and the T3-derived composer while the connector supplies token-scoped transport paths.
+
+An existing web app can reuse the same component and copy the small canvas connection module from `app/canvas-app.tsx`, then keep its own canvas, voice controls, or surrounding layout. Canvas operations remain framework-independent HTTP/WebSocket messages.
 
 This project's integration code is MIT licensed. The tldraw SDK dependency remains under the separate [tldraw SDK license](https://tldraw.dev/community/license); it is source-available rather than MIT-licensed.

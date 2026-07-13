@@ -37,18 +37,26 @@ try {
   if (snapshot.shapes.length !== 2 || !JSON.stringify(snapshot).includes("Direct canvasctl works")) throw new Error("Direct create/image verification failed");
 
   await canvasctl(["clear"]);
-  const composer = page.getByLabel("Message Codex");
-  await composer.fill("Create one orange note near x 140 y 140 that says LIVE CODEX TEST. Then zoom to fit.");
-  await page.getByRole("button", { name: "Send" }).click();
+  const chat = page.frameLocator('iframe[title="Local Codex chat"]');
+  const composer = chat.getByLabel("Message Codex");
+  await composer.waitFor({ timeout: 30000 });
+  await composer.fill("First send a brief progress update. Then inspect the live canvas, create one orange note near x 140 y 140 that says LIVE CODEX TEST, zoom to fit, and finish with a separate concise result message.");
+  await chat.getByRole("button", { name: "Send" }).click();
   await poll(async () => JSON.stringify(await getSnapshot()).includes("LIVE CODEX TEST"), 180000);
-  await page.locator(".message-assistant").last().filter({ hasNotText: "Working…" }).waitFor({ timeout: 180000 });
+  await chat.locator(".working").waitFor({ state: "detached", timeout: 180000 });
+  const assistantMessages = chat.locator(".assistant-message");
+  await poll(async () => await assistantMessages.count() >= 2, 30000);
+  const assistantTexts = await assistantMessages.allTextContents();
+  if (assistantTexts.some((text) => !text.trim())) throw new Error("T3 timeline rendered an empty assistant message");
+  const toolCount = await chat.locator(".tool-item").count();
+  if (toolCount < 1) throw new Error("T3 timeline did not render the Codex tool activity");
   snapshot = await getSnapshot();
   if (!JSON.stringify(snapshot).includes("LIVE CODEX TEST")) throw new Error("Codex did not modify the live canvas");
 
   await page.screenshot({ path: resolve(root, ".qa-codex-canvas.png"), fullPage: true });
   const meaningfulErrors = consoleErrors.filter((text) => !text.includes("favicon"));
   if (meaningfulErrors.length) throw new Error(`Browser console errors:\n${meaningfulErrors.join("\n")}`);
-  console.log(JSON.stringify({ ok: true, shapeCount: snapshot.shapes.length, screenshot: resolve(root, ".qa-codex-canvas.png") }, null, 2));
+  console.log(JSON.stringify({ ok: true, shapeCount: snapshot.shapes.length, assistantMessageCount: assistantTexts.length, toolCount, screenshot: resolve(root, ".qa-codex-canvas.png") }, null, 2));
 } finally { await browser.close(); }
 
 async function canvasctl(args) {

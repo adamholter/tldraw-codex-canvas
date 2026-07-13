@@ -6,11 +6,10 @@ import {
 import { getSnapshot, type Editor } from "@tldraw/editor";
 import { AssetRecordType, createShapeId, toRichText } from "@tldraw/tlschema";
 import "tldraw/tldraw.css";
-import { createCodexAssistant, type CodexAssistant } from "t3-code-ultralight-browser-fork/assistant";
+import { CodexChatEmbed } from "t3-code-ultralight-browser-fork/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Connection = { sidecar: string; token: string };
-type ChatMessage = { role: "user" | "assistant" | "system"; text: string };
 type CanvasCommand = { id: string; action: string; payload?: any };
 
 function readConnection(): Connection | null {
@@ -126,11 +125,7 @@ export function CanvasApp() {
   const [pairingError, setPairingError] = useState("");
   const [status, setStatus] = useState<"offline" | "connecting" | "connected">("offline");
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [prompt, setPrompt] = useState("");
-  const [running, setRunning] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
-  const assistantRef = useRef<CodexAssistant | null>(null);
   const stateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -185,40 +180,6 @@ export function CanvasApp() {
     };
   }, [connection, editor, pushState]);
 
-  useEffect(() => {
-    if (!connection) return;
-    const assistant = createCodexAssistant({
-      url: `${wsUrl(connection.sidecar)}/codex/${encodeURIComponent(connection.token)}/ws`,
-      requestHandlers: {
-        approval: (request) => window.confirm(`Allow Codex to run this action?\n\n${request.method}`) ? "accept" : "decline",
-        permission: (request) => window.confirm(`Allow Codex permission?\n\n${request.reason || "Requested for this canvas task"}`) ? { scope: "session" } : null,
-        userInput: (questions) => Object.fromEntries(questions.map((question) => [question.id, [window.prompt(question.question, question.options?.[0]?.label || "") || ""]])),
-        mcpUrl: (request) => window.confirm(`${request.message}\n\nOpen and authorize ${request.url}?`) ? "accept" : "decline",
-      },
-    });
-    assistantRef.current = assistant;
-    return () => { if (assistantRef.current === assistant) assistantRef.current = null; void assistant.close(); };
-  }, [connection]);
-
-  const sendPrompt = useCallback(async () => {
-    const text = prompt.trim();
-    const assistant = assistantRef.current;
-    if (!text || !assistant || running) return;
-    setPrompt("");
-    setRunning(true);
-    pushState();
-    setMessages((items) => [...items, { role: "user", text }, { role: "assistant", text: "" }]);
-    try {
-      const answer = await assistant.send(
-        `You are attached to a live tldraw canvas. Use canvasctl snapshot before acting, and use canvasctl create, update, delete, image, or eval to directly manipulate it. The canvas state changes live while you work. Do the requested canvas work yourself; do not only describe instructions.\n\nUser request: ${text}`,
-        { onDelta: (_delta, fullText) => setMessages((items) => [...items.slice(0, -1), { role: "assistant", text: fullText }]) },
-      );
-      setMessages((items) => [...items.slice(0, -1), { role: "assistant", text: answer.text }]);
-    } catch (error) {
-      setMessages((items) => [...items.slice(0, -1), { role: "assistant", text: `Codex error: ${error instanceof Error ? error.message : String(error)}` }]);
-    } finally { setRunning(false); }
-  }, [prompt, pushState, running]);
-
   const statusLabel = useMemo(() => status === "connected" ? "Live" : status === "connecting" ? "Connecting" : "Offline", [status]);
 
   return (
@@ -250,31 +211,19 @@ export function CanvasApp() {
           </form>
         ) : null}
 
-        <div className="messages" aria-live="polite">
-          {!messages.length ? <div className="empty-state"><div className="empty-mark">C</div><h2>Talk to your local Codex</h2><p>Ask it to draw, arrange, annotate, or work with anything on the live canvas.</p></div> : null}
-          {messages.map((message, index) => (
-            <article key={index} className={`message message-${message.role}`}>
-              <div className="message-mark">{message.role === "assistant" ? "C" : "Y"}</div>
-              <div className="message-copy"><span>{message.role === "assistant" ? "Codex" : message.role === "user" ? "You" : "Canvas"}</span><p>{message.text || (running ? "Working…" : "")}</p></div>
-            </article>
-          ))}
-        </div>
-
-        <div className="composer-wrap">
-          <div className="composer">
-            <textarea
-              aria-label="Message Codex"
-              placeholder="Message Codex…"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendPrompt(); } }}
-            />
-            <div className="composer-actions">
-              <span>{status === "connected" ? "Canvas context is live" : "Connect the sidecar to start"}</span>
-              {running ? <button className="stop-button" aria-label="Stop Codex" onClick={() => assistantRef.current?.stop()}>■</button> : <button className="send-button" aria-label="Send message" disabled={!connection || status !== "connected" || !prompt.trim()} onClick={() => void sendPrompt()}>↑</button>}
-            </div>
-          </div>
-        </div>
+        {connection && status !== "offline" ? (
+          <CodexChatEmbed
+            className="codex-chat-frame"
+            bridgeUrl={`${connection.sidecar}/chat?token=${encodeURIComponent(connection.token)}`}
+            websocketPath={`/codex/${encodeURIComponent(connection.token)}/ws`}
+            statusPath={`/api/codex-status?token=${encodeURIComponent(connection.token)}`}
+            onTurnChange={(event) => { if (event.phase === "started") pushState(); }}
+            onCodexError={(event) => console.error("Embedded Codex error", event.message)}
+            style={{ width: "100%", height: "100%", minHeight: 0, border: 0, borderRadius: 0 }}
+          />
+        ) : (
+          <div className="chat-disconnected"><div className="empty-mark">C</div><h2>Talk to your local Codex</h2><p>Connect the local sidecar to use the complete T3 Code chat.</p></div>
+        )}
       </aside>
     </main>
   );
