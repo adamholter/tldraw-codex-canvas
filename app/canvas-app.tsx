@@ -16,7 +16,11 @@ type CanvasCommand = { id: string; action: string; payload?: any };
 
 function readConnection(): Connection | null {
   if (typeof window === "undefined") return null;
-  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  let pairingHash = window.location.hash;
+  try {
+    if (!pairingHash && window.parent !== window) pairingHash = window.parent.location.hash;
+  } catch { /* cross-origin parent; use this frame's hash */ }
+  const hash = new URLSearchParams(pairingHash.replace(/^#/, ""));
   const stored = window.localStorage.getItem("codex-canvas-connection");
   let previous: Partial<Connection> = {};
   try { previous = stored ? JSON.parse(stored) : {}; } catch { /* ignore */ }
@@ -146,6 +150,9 @@ export function CanvasApp() {
     setPairingError("");
     window.localStorage.setItem("codex-canvas-connection", JSON.stringify(next));
     window.history.replaceState(null, "", window.location.pathname);
+    try {
+      if (window.parent !== window) window.parent.history.replaceState(null, "", window.parent.location.pathname);
+    } catch { /* cross-origin parent; the frame is still paired */ }
     setDraftConnection(next);
     setConnection(next);
   }, [draftConnection, pairingInput]);

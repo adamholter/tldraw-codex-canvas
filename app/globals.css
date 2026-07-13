@@ -15,9 +15,10 @@
   --success: #45845d;
 }
 * { box-sizing: border-box; }
-html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 body { background: var(--chrome); color: var(--text); font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif; }
 button, input, textarea { font: inherit; color: inherit; }
+.app-frame { display: block; width: 100vw; height: 100dvh; border: 0; background: #fff; }
 .app-shell { display: grid; grid-template-columns: minmax(0, 1fr) 392px; width: 100vw; height: 100dvh; overflow: hidden; background: var(--chrome); }
 .canvas-stage { position: relative; min-width: 0; height: 100%; border-right: 1px solid var(--line); background: #fff; }
 .canvas-loading { position: absolute; inset: 0; background: #fff; }

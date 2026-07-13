@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { CanvasClient } from "./canvas-client";
 
 export const metadata: Metadata = {
   title: "Codex Canvas",
@@ -7,5 +6,12 @@ export const metadata: Metadata = {
 };
 
 export default function Home() {
-  return <CanvasClient />;
+  return (
+    <iframe
+      className="app-frame"
+      src="/canvas-frame/index.html"
+      title="Codex Canvas"
+      allow="clipboard-read; clipboard-write"
+    />
+  );
 }
