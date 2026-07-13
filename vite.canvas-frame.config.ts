@@ -4,6 +4,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   base: "/canvas-frame/",
   root: "frame",
+  envDir: "..",
   publicDir: false,
   plugins: [react()],
   build: {

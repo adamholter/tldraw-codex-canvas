@@ -25,6 +25,20 @@ It starts or reuses the local sidecar, creates the web tunnel, prints the pairin
 
 For local web development, use `npm run dev` and `npm run sidecar:local` in separate terminals.
 
+## Production tldraw license
+
+tldraw 4+ requires a tldraw SDK license key on production HTTPS domains. Without one, the SDK intentionally hides the editor after five seconds. Local HTTP development does not require a key.
+
+Get a [trial, hobby, or commercial key](https://tldraw.dev/sdk-features/license-key), then configure it before building:
+
+```bash
+cp .env.example .env.local
+# Add your public, domain-bound key as VITE_TLDRAW_LICENSE_KEY
+npm run build
+```
+
+The key is compiled into the browser bundle by design; tldraw documents these keys as safe to expose because they are validated client-side and restricted by license terms and allowed domains. Every downstream production deployment must use its own valid tldraw license.
+
 ## Use the hosted canvas with your local Codex
 
 Keep this running:
@@ -74,4 +88,4 @@ The canvas and Codex WebSocket paths include the random pairing token, and brows
 
 The reusable seam is the sidecar protocol, not the surrounding UI. An existing web app can copy the small connection module from `app/canvas-app.tsx`, connect its own tldraw `Editor`, and keep its own layout, voice controls, or canvas experience. The Codex chat client comes from `t3-code-ultralight-browser-fork`; canvas operations remain framework-independent HTTP/WebSocket messages.
 
-MIT licensed.
+This project's integration code is MIT licensed. The tldraw SDK dependency remains under the separate [tldraw SDK license](https://tldraw.dev/community/license); it is source-available rather than MIT-licensed.

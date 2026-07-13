@@ -236,6 +236,7 @@ export function CanvasApp() {
         {canvasReady ? (
           <Tldraw
             store={canvasStore}
+            licenseKey={import.meta.env.VITE_TLDRAW_LICENSE_KEY || undefined}
             onMount={(nextEditor) => {
               setEditor(nextEditor);
               return () => setEditor(null);

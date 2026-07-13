@@ -11,3 +11,5 @@ dist
 tsconfig.tsbuildinfo
 .qa-codex-canvas.png
 public/canvas-frame
+.env*
+!.env.example
