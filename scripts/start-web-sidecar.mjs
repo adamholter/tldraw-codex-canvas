@@ -19,11 +19,7 @@ if (session) {
 } else {
   const port = await findAvailablePort(preferredPort);
   const token = process.env.CANVAS_TOKEN || randomBytes(32).toString("base64url");
-  const env = { ...process.env, CANVAS_TOKEN: token, CANVAS_PORT: String(port), CANVAS_WEB_URL: webUrl };
-  sidecar = spawn(process.execPath, [new URL("./sidecar.mjs", import.meta.url).pathname, "--port", String(port), "--web-url", webUrl], { env, stdio: ["ignore", "pipe", "inherit"] });
-  sidecar.stdout.on("data", (chunk) => process.stdout.write(chunk));
-  sidecar.once("exit", (code) => { if (code && code !== 0) console.error(`Sidecar exited with code ${code}.`); });
-  session = await waitForSession(port, token);
+  session = { port, token, pid: null };
 }
 
 const { port, token } = session;
@@ -40,7 +36,12 @@ try {
   tunnelProcess = serveo.process;
   publicUrl = serveo.url;
 }
-await fetch(`http://127.0.0.1:${port}/api/config/public-url`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ url: publicUrl }) });
+if (session.pid) await stopSidecar(session.pid);
+const env = { ...process.env, CANVAS_TOKEN: token, CANVAS_PORT: String(port), CANVAS_WEB_URL: webUrl, CANVAS_PUBLIC_URL: publicUrl };
+sidecar = spawn(process.execPath, [new URL("./sidecar.mjs", import.meta.url).pathname, "--port", String(port), "--web-url", webUrl], { env, stdio: ["ignore", "pipe", "inherit"] });
+sidecar.stdout.on("data", (chunk) => process.stdout.write(chunk));
+sidecar.once("exit", (code) => { if (code && code !== 0) console.error(`Sidecar exited with code ${code}.`); });
+session = await waitForSession(port, token);
 const pairedUrl = `${webUrl}/#sidecar=${encodeURIComponent(publicUrl)}&token=${encodeURIComponent(token)}`;
 const copied = process.platform === "darwin" && spawnSync("pbcopy", { input: pairedUrl }).status === 0;
 console.log(`\nOpen Codex Canvas:\n${pairedUrl}`);
@@ -88,6 +89,14 @@ function portAvailable(port) {
     probe.once("error", () => resolve(false));
     probe.listen(port, "127.0.0.1", () => probe.close(() => resolve(true)));
   });
+}
+async function stopSidecar(pid) {
+  try { process.kill(pid, "SIGTERM"); } catch { return; }
+  for (let i = 0; i < 100; i++) {
+    try { process.kill(pid, 0); } catch { return; }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Existing sidecar ${pid} did not stop cleanly.`);
 }
 function startCloudflareTunnel(port) {
   return new Promise((resolve, reject) => {
