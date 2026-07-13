@@ -5,6 +5,7 @@ dist
 .wrangler
 .canvas-assets
 .canvas-state.json
+.sidecar-session.json
 .DS_Store
 *.log
 tsconfig.tsbuildinfo

@@ -1,21 +1,35 @@
 #!/usr/bin/env node
 import { randomBytes } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { readFile, unlink } from "node:fs/promises";
+import { createServer } from "node:net";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const webUrl = readArg("--web-url") || process.env.CANVAS_WEB_URL;
-if (!webUrl) {
-  console.error("Usage: npm run sidecar:web -- --web-url https://your-canvas-site.example");
-  process.exit(1);
+const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const sessionFile = resolve(root, ".sidecar-session.json");
+const webUrl = (readArg("--web-url") || process.env.CANVAS_WEB_URL || "https://codex-canvas.adamholter.chatgpt.site").replace(/\/$/, "");
+const preferredPort = Number(readArg("--port") || process.env.CANVAS_PORT || 4317);
+let session = await reusableSession();
+let sidecar = null;
+
+if (session) {
+  console.log(`Reusing the Codex Canvas sidecar already running on port ${session.port}.`);
+  console.log(`Pairing token: ${session.token}`);
+} else {
+  const port = await findAvailablePort(preferredPort);
+  const token = process.env.CANVAS_TOKEN || randomBytes(32).toString("base64url");
+  const env = { ...process.env, CANVAS_TOKEN: token, CANVAS_PORT: String(port), CANVAS_WEB_URL: webUrl };
+  sidecar = spawn(process.execPath, [new URL("./sidecar.mjs", import.meta.url).pathname, "--port", String(port), "--web-url", webUrl], { env, stdio: ["ignore", "pipe", "inherit"] });
+  sidecar.stdout.on("data", (chunk) => process.stdout.write(chunk));
+  sidecar.once("exit", (code) => { if (code && code !== 0) console.error(`Sidecar exited with code ${code}.`); });
+  session = await waitForSession(port, token);
 }
-const port = readArg("--port") || "4317";
-const token = randomBytes(32).toString("base64url");
-const env = { ...process.env, CANVAS_TOKEN: token, CANVAS_WEB_URL: webUrl };
-const sidecar = spawn(process.execPath, [new URL("./sidecar.mjs", import.meta.url).pathname, "--port", port, "--web-url", webUrl], { env, stdio: ["ignore", "pipe", "inherit"] });
-sidecar.stdout.on("data", (chunk) => process.stdout.write(chunk));
 
-await waitForHealth(`http://127.0.0.1:${port}/health`);
+const { port, token } = session;
 let tunnelProcess = null;
 let publicUrl;
+console.log("Creating the secure web connection…");
 try {
   const cloudflare = await startCloudflareTunnel(port);
   tunnelProcess = cloudflare.process;
@@ -27,15 +41,54 @@ try {
   publicUrl = serveo.url;
 }
 await fetch(`http://127.0.0.1:${port}/api/config/public-url`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ url: publicUrl }) });
-console.log(`\nHosted canvas: ${webUrl.replace(/\/$/, "")}/#sidecar=${encodeURIComponent(publicUrl)}&token=${encodeURIComponent(token)}`);
+const pairedUrl = `${webUrl}/#sidecar=${encodeURIComponent(publicUrl)}&token=${encodeURIComponent(token)}`;
+const copied = process.platform === "darwin" && spawnSync("pbcopy", { input: pairedUrl }).status === 0;
+console.log(`\nOpen Codex Canvas:\n${pairedUrl}`);
+console.log(`\nPairing token: ${token}`);
+if (copied) console.log("The complete pairing link is already copied to your clipboard.");
 console.log("Keep this process running while you use the hosted canvas.\n");
+if (process.argv.includes("--open") && process.platform === "darwin") spawn("open", [pairedUrl], { detached: true, stdio: "ignore" }).unref();
 
-const close = () => { tunnelProcess?.kill("SIGTERM"); sidecar.kill("SIGTERM"); };
+const close = () => { tunnelProcess?.kill("SIGTERM"); sidecar?.kill("SIGTERM"); };
 process.on("SIGINT", close); process.on("SIGTERM", close);
-await new Promise((resolve) => sidecar.once("exit", resolve));
+await new Promise((resolve) => {
+  tunnelProcess?.once("exit", resolve);
+  sidecar?.once("exit", resolve);
+});
 
 function readArg(name) { const index = process.argv.indexOf(name); return index >= 0 ? process.argv[index + 1] : null; }
-async function waitForHealth(url) { for (let i = 0; i < 60; i++) { try { if ((await fetch(url)).ok) return; } catch {} await new Promise((resolve) => setTimeout(resolve, 250)); } throw new Error("Sidecar did not start"); }
+async function reusableSession() {
+  try {
+    const candidate = JSON.parse(await readFile(sessionFile, "utf8"));
+    const response = await fetch(`http://127.0.0.1:${candidate.port}/health`, { signal: AbortSignal.timeout(1000) });
+    const health = await response.json();
+    if (response.ok && health.project === "tldraw-codex-canvas" && health.instanceId === candidate.instanceId && health.pid === candidate.pid) return candidate;
+  } catch { /* stale or missing */ }
+  await unlink(sessionFile).catch(() => {});
+  return null;
+}
+async function waitForSession(port, token) {
+  for (let i = 0; i < 80; i++) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(1000) });
+      const health = await response.json();
+      if (response.ok && health.project === "tldraw-codex-canvas") return { version: 1, project: health.project, instanceId: health.instanceId, pid: health.pid, host: "127.0.0.1", port, token };
+    } catch { /* still starting */ }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("The local sidecar did not start. Check that the Codex CLI is installed and signed in.");
+}
+async function findAvailablePort(preferred) {
+  for (let port = preferred; port < preferred + 20; port++) if (await portAvailable(port)) return port;
+  throw new Error(`No available sidecar port between ${preferred} and ${preferred + 19}.`);
+}
+function portAvailable(port) {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once("error", () => resolve(false));
+    probe.listen(port, "127.0.0.1", () => probe.close(() => resolve(true)));
+  });
+}
 function startCloudflareTunnel(port) {
   return new Promise((resolve, reject) => {
     const process = spawn("cloudflared", ["tunnel", "--url", `http://127.0.0.1:${port}`, "--no-autoupdate"], { stdio: ["ignore", "ignore", "pipe"] });

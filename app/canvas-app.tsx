@@ -28,6 +28,19 @@ function wsUrl(httpUrl: string) {
   return httpUrl.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
 }
 
+function parsePairing(value: string, fallbackSidecar: string): Connection | null {
+  const input = value.trim();
+  if (!input) return null;
+  try {
+    const url = new URL(input);
+    const params = new URLSearchParams(url.hash.replace(/^#/, ""));
+    const sidecar = params.get("sidecar")?.replace(/\/$/, "");
+    const token = params.get("token");
+    if (sidecar && token) return { sidecar, token };
+  } catch { /* token-only fallback below */ }
+  return /^[A-Za-z0-9_-]{20,}$/.test(input) ? { sidecar: fallbackSidecar.replace(/\/$/, ""), token: input } : null;
+}
+
 function compactState(editor: Editor) {
   const shapes = editor.getCurrentPageShapes().map((shape) => ({
     id: shape.id,
@@ -109,9 +122,11 @@ function normalizeText(shape: any) {
 export function CanvasApp() {
   const [connection, setConnection] = useState<Connection | null>(null);
   const [draftConnection, setDraftConnection] = useState<Connection>({ sidecar: "http://127.0.0.1:4317", token: "" });
+  const [pairingInput, setPairingInput] = useState("");
+  const [pairingError, setPairingError] = useState("");
   const [status, setStatus] = useState<"offline" | "connecting" | "connected">("offline");
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([{ role: "system", text: "Pair this canvas with the local sidecar to give Codex live canvas access." }]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [prompt, setPrompt] = useState("");
   const [running, setRunning] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
@@ -124,12 +139,14 @@ export function CanvasApp() {
   }, []);
 
   const saveConnection = useCallback(() => {
-    const next = { sidecar: draftConnection.sidecar.replace(/\/$/, ""), token: draftConnection.token.trim() };
-    if (!next.sidecar || !next.token) return;
+    const next = parsePairing(pairingInput, draftConnection.sidecar) || (draftConnection.token.trim() ? { sidecar: draftConnection.sidecar.replace(/\/$/, ""), token: draftConnection.token.trim() } : null);
+    if (!next) { setPairingError("Paste the complete pairing link printed by the connector."); return; }
+    setPairingError("");
     window.localStorage.setItem("codex-canvas-connection", JSON.stringify(next));
     window.history.replaceState(null, "", window.location.pathname);
+    setDraftConnection(next);
     setConnection(next);
-  }, [draftConnection]);
+  }, [draftConnection, pairingInput]);
 
   const pushState = useCallback((target?: WebSocket) => {
     const socket = target || socketRef.current;
@@ -216,35 +233,42 @@ export function CanvasApp() {
         </header>
 
         {!connection || status === "offline" ? (
-          <div className="pairing-card">
-            <h2>Connect sidecar</h2>
-            <p>Run <code>npm run sidecar</code>, then use the URL and pairing token it prints.</p>
-            <label>Sidecar URL<input value={draftConnection.sidecar} onChange={(e) => setDraftConnection((value) => ({ ...value, sidecar: e.target.value }))} /></label>
-            <label>Pairing token<input type="password" value={draftConnection.token} onChange={(e) => setDraftConnection((value) => ({ ...value, token: e.target.value }))} /></label>
-            <button onClick={saveConnection}>Connect</button>
-          </div>
+          <form className="pairing-bar" onSubmit={(event) => { event.preventDefault(); saveConnection(); }}>
+            <div className="pairing-copy">
+              <strong>Connect local Codex</strong>
+              <span>Run <code>codex-canvas</code>, then paste the copied pairing link.</span>
+            </div>
+            <div className="pairing-controls">
+              <input aria-label="Pairing link" placeholder="Paste pairing link" value={pairingInput} onChange={(event) => { setPairingInput(event.target.value); setPairingError(""); }} />
+              <button type="submit">Connect</button>
+            </div>
+            {pairingError ? <p className="pairing-error">{pairingError}</p> : null}
+          </form>
         ) : null}
 
         <div className="messages" aria-live="polite">
+          {!messages.length ? <div className="empty-state"><div className="empty-mark">C</div><h2>Talk to your local Codex</h2><p>Ask it to draw, arrange, annotate, or work with anything on the live canvas.</p></div> : null}
           {messages.map((message, index) => (
             <article key={index} className={`message message-${message.role}`}>
-              <span>{message.role === "assistant" ? "Codex" : message.role === "user" ? "You" : "Canvas"}</span>
-              <p>{message.text || (running ? "Working…" : "")}</p>
+              <div className="message-mark">{message.role === "assistant" ? "C" : "Y"}</div>
+              <div className="message-copy"><span>{message.role === "assistant" ? "Codex" : message.role === "user" ? "You" : "Canvas"}</span><p>{message.text || (running ? "Working…" : "")}</p></div>
             </article>
           ))}
         </div>
 
-        <div className="composer">
-          <textarea
-            aria-label="Message Codex"
-            placeholder="Ask Codex to draw, organize, annotate, or add an image…"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendPrompt(); } }}
-          />
-          <div className="composer-actions">
-            <button className="secondary" disabled={!running} onClick={() => assistantRef.current?.stop()}>Stop</button>
-            <button disabled={!connection || status !== "connected" || running || !prompt.trim()} onClick={() => void sendPrompt()}>Send</button>
+        <div className="composer-wrap">
+          <div className="composer">
+            <textarea
+              aria-label="Message Codex"
+              placeholder="Message Codex…"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendPrompt(); } }}
+            />
+            <div className="composer-actions">
+              <span>{status === "connected" ? "Canvas context is live" : "Connect the sidecar to start"}</span>
+              {running ? <button className="stop-button" aria-label="Stop Codex" onClick={() => assistantRef.current?.stop()}>■</button> : <button className="send-button" aria-label="Send message" disabled={!connection || status !== "connected" || !prompt.trim()} onClick={() => void sendPrompt()}>↑</button>}
+            </div>
           </div>
         </div>
       </aside>

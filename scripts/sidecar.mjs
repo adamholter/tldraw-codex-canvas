@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
@@ -16,6 +16,8 @@ const extraOrigins = (process.env.CANVAS_ALLOWED_ORIGINS || "").split(",").map((
 const allowedOrigins = [...new Set([webUrl, "http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001", ...extraOrigins])];
 const assetsDir = join(root, ".canvas-assets");
 const stateFile = join(root, ".canvas-state.json");
+const sessionFile = join(root, ".sidecar-session.json");
+const instanceId = randomUUID();
 let publicBaseUrl = process.env.CANVAS_PUBLIC_URL?.replace(/\/$/, "") || `http://${host}:${port}`;
 let canvasSocket = null;
 let latestState = { summary: { shapes: [], selectedShapeIds: [] }, snapshot: null, at: 0 };
@@ -34,7 +36,7 @@ const server = createServer(async (request, response) => {
   response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   if (request.method === "OPTIONS") return end(response, 204, "");
 
-  if (url.pathname === "/health") return json(response, 200, { ok: true, canvasConnected: canvasSocket?.readyState === WebSocket.OPEN, codexPath: `/codex/${token}/ws` });
+  if (url.pathname === "/health") return json(response, 200, { ok: true, project: "tldraw-codex-canvas", instanceId, pid: process.pid, port, canvasConnected: canvasSocket?.readyState === WebSocket.OPEN, codexPath: `/codex/${token}/ws` });
   if (url.pathname.startsWith("/assets/")) {
     if (url.searchParams.get("token") !== token) return json(response, 401, { error: "Invalid pairing token" });
     const id = url.pathname.slice("/assets/".length);
@@ -122,7 +124,18 @@ const bridge = attachCodexBridge(server, {
 });
 bridge.bridge.on("log", (entry) => { if (entry.level === "error") process.stderr.write(`[codex] ${entry.message}\n`); });
 
-server.listen(port, host, () => {
+server.on("error", (error) => {
+  if (error?.code === "EADDRINUSE") {
+    console.error(`Port ${port} is already in use. Run the normal \"npm run sidecar\" connector so it can reuse the existing sidecar or choose another port.`);
+    process.exitCode = 73;
+    return;
+  }
+  throw error;
+});
+
+server.listen(port, host, async () => {
+  await writeFile(sessionFile, JSON.stringify({ version: 1, project: "tldraw-codex-canvas", instanceId, pid: process.pid, host, port, token, startedAt: new Date().toISOString() }, null, 2));
+  await chmod(sessionFile, 0o600).catch(() => {});
   const localCanvas = `${webUrl}/#sidecar=${encodeURIComponent(`http://${host}:${port}`)}&token=${encodeURIComponent(token)}`;
   console.log(`\nCodex Canvas sidecar is ready.`);
   console.log(`Canvas: ${localCanvas}`);
@@ -134,8 +147,11 @@ for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, async () => {
   for (const entry of pending.values()) entry.reject(new Error("Sidecar stopped"));
   await bridge.stop().catch(() => {});
   canvasWss.close();
+  await removeOwnSession();
   server.close(() => process.exit(0));
 });
+
+process.on("exit", () => { void removeOwnSession(); });
 
 function issueCommand(action, payload, timeoutMs) {
   if (!canvasSocket || canvasSocket.readyState !== WebSocket.OPEN) return Promise.reject(new Error("No live canvas is connected"));
@@ -158,4 +174,10 @@ async function readJson(request, max = 1024 * 1024) {
   const chunks = []; let size = 0;
   for await (const chunk of request) { size += chunk.length; if (size > max) throw new Error("Request body too large"); chunks.push(chunk); }
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+}
+async function removeOwnSession() {
+  try {
+    const session = JSON.parse(await readFile(sessionFile, "utf8"));
+    if (session.instanceId === instanceId) await unlink(sessionFile);
+  } catch { /* already gone or belongs to another process */ }
 }
