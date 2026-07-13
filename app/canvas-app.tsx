@@ -8,6 +8,7 @@ import { AssetRecordType, createShapeId, toRichText } from "@tldraw/tlschema";
 import "tldraw/tldraw.css";
 import { createCodexAssistant, type CodexAssistant } from "t3-code-ultralight-browser-fork/assistant";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePersistentCanvasStore } from "./use-persistent-canvas-store";
 
 type Connection = { sidecar: string; token: string };
 type ChatMessage = { role: "user" | "assistant" | "system"; text: string };
@@ -120,6 +121,7 @@ function normalizeText(shape: any) {
 }
 
 export function CanvasApp() {
+  const { ready: canvasReady, store: canvasStore } = usePersistentCanvasStore();
   const [connection, setConnection] = useState<Connection | null>(null);
   const [draftConnection, setDraftConnection] = useState<Connection>({ sidecar: "http://127.0.0.1:4317", token: "" });
   const [pairingInput, setPairingInput] = useState("");
@@ -224,7 +226,17 @@ export function CanvasApp() {
   return (
     <main className="app-shell">
       <section className="canvas-stage" aria-label="tldraw canvas">
-        <Tldraw persistenceKey="codex-canvas" onMount={setEditor} />
+        {canvasReady ? (
+          <Tldraw
+            store={canvasStore}
+            onMount={(nextEditor) => {
+              setEditor(nextEditor);
+              return () => setEditor(null);
+            }}
+          />
+        ) : (
+          <div className="canvas-loading" role="status" aria-label="Loading canvas" />
+        )}
       </section>
       <aside className="sidecar-panel">
         <header className="sidecar-header">
