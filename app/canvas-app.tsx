@@ -8,7 +8,6 @@ import { AssetRecordType, createShapeId, toRichText } from "@tldraw/tlschema";
 import "tldraw/tldraw.css";
 import { createCodexAssistant, type CodexAssistant } from "t3-code-ultralight-browser-fork/assistant";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePersistentCanvasStore } from "./use-persistent-canvas-store";
 
 type Connection = { sidecar: string; token: string };
 type ChatMessage = { role: "user" | "assistant" | "system"; text: string };
@@ -16,11 +15,7 @@ type CanvasCommand = { id: string; action: string; payload?: any };
 
 function readConnection(): Connection | null {
   if (typeof window === "undefined") return null;
-  let pairingHash = window.location.hash;
-  try {
-    if (!pairingHash && window.parent !== window) pairingHash = window.parent.location.hash;
-  } catch { /* cross-origin parent; use this frame's hash */ }
-  const hash = new URLSearchParams(pairingHash.replace(/^#/, ""));
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
   const stored = window.localStorage.getItem("codex-canvas-connection");
   let previous: Partial<Connection> = {};
   try { previous = stored ? JSON.parse(stored) : {}; } catch { /* ignore */ }
@@ -125,7 +120,6 @@ function normalizeText(shape: any) {
 }
 
 export function CanvasApp() {
-  const { ready: canvasReady, store: canvasStore } = usePersistentCanvasStore();
   const [connection, setConnection] = useState<Connection | null>(null);
   const [draftConnection, setDraftConnection] = useState<Connection>({ sidecar: "http://127.0.0.1:4317", token: "" });
   const [pairingInput, setPairingInput] = useState("");
@@ -150,9 +144,6 @@ export function CanvasApp() {
     setPairingError("");
     window.localStorage.setItem("codex-canvas-connection", JSON.stringify(next));
     window.history.replaceState(null, "", window.location.pathname);
-    try {
-      if (window.parent !== window) window.parent.history.replaceState(null, "", window.parent.location.pathname);
-    } catch { /* cross-origin parent; the frame is still paired */ }
     setDraftConnection(next);
     setConnection(next);
   }, [draftConnection, pairingInput]);
@@ -233,18 +224,11 @@ export function CanvasApp() {
   return (
     <main className="app-shell">
       <section className="canvas-stage" aria-label="tldraw canvas">
-        {canvasReady ? (
-          <Tldraw
-            store={canvasStore}
-            licenseKey={import.meta.env.VITE_TLDRAW_LICENSE_KEY || undefined}
-            onMount={(nextEditor) => {
-              setEditor(nextEditor);
-              return () => setEditor(null);
-            }}
-          />
-        ) : (
-          <div className="canvas-loading" role="status" aria-label="Loading canvas" />
-        )}
+        <Tldraw
+          persistenceKey="codex-canvas"
+          licenseKey={import.meta.env.VITE_TLDRAW_LICENSE_KEY || undefined}
+          onMount={setEditor}
+        />
       </section>
       <aside className="sidecar-panel">
         <header className="sidecar-header">
