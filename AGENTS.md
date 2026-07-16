@@ -22,7 +22,9 @@ canvasctl eval 'editor.createShape({type:"note",x:80,y:80,props:{text:"Made by C
 canvasctl eval --file /absolute/path/to/a-more-complex-canvas-script.js
 ```
 
-The convenience `create` and `update` commands accept `props.text` and convert it to tldraw rich text. The eval environment provides `editor`, `payload`, and `tldraw` helpers (`createShapeId`, `createAssetId`, `getSnapshot`, `toRichText`, and `placeImage`). It supports async code. Prefer ordinary `canvasctl` commands for simple work and `eval` for composition, layout, custom behavior, or access to the full Editor API.
+The convenience `create` and `update` commands accept `props.text` and convert it to tldraw rich text. The eval environment provides `editor`, `payload`, and `tldraw` helpers (`createShapeId`, `createAssetId`, `getSnapshot`, `toRichText`, `placeImage`, and `createShapesSafely`). It supports async code. Prefer ordinary `canvasctl` commands for simple work and `eval` for composition, layout, custom behavior, or access to the full Editor API.
+
+For compositions that create more than 12 shapes, call `await tldraw.createShapesSafely(shapes)` inside eval rather than `editor.createShapes(shapes)`. It yields between bounded batches so React, tldraw persistence, and the canvas renderer can settle without entering tldraw's error boundary.
 
 The browser continuously updates `.canvas-state.json`. `canvasctl snapshot` returns a compact live view; `canvasctl snapshot --full` returns the complete tldraw store snapshot. Re-read state after multi-step work because the user may edit the canvas while Codex is running.
 

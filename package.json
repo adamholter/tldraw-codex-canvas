@@ -22,13 +22,11 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {
-    "@tldraw/editor": "^5.2.4",
-    "@tldraw/tlschema": "^5.2.4",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "t3-code-ultralight-browser-fork": "https://github.com/adamholter/t3-code-ultralight-browser-fork/releases/latest/download/t3-code-ultralight-browser-fork.tgz?v=0.56.0",
-    "tldraw": "^5.2.4",
+    "tldraw": "^5.2.5",
     "ws": "^8.21.0"
   },
   "devDependencies": {

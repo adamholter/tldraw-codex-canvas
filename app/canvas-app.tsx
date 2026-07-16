@@ -1,16 +1,34 @@
 "use client";
 
 import {
+  AssetRecordType,
+  createShapeId,
+  getSnapshot,
   Tldraw,
+  toRichText,
+  type Editor,
+  type TLShapePartial,
 } from "tldraw";
-import { getSnapshot, type Editor } from "@tldraw/editor";
-import { AssetRecordType, createShapeId, toRichText } from "@tldraw/tlschema";
 import "tldraw/tldraw.css";
 import { CodexChatEmbed } from "t3-code-ultralight-browser-fork/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Connection = { sidecar: string; token: string };
 type CanvasCommand = { id: string; action: string; payload?: any };
+
+const MAX_SHAPES_PER_BATCH = 12;
+
+async function yieldToBrowser() {
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+async function createShapesSafely(editor: Editor, shapes: TLShapePartial[]) {
+  for (let index = 0; index < shapes.length; index += MAX_SHAPES_PER_BATCH) {
+    editor.createShapes(shapes.slice(index, index + MAX_SHAPES_PER_BATCH).map(normalizeText));
+    await yieldToBrowser();
+  }
+  return { created: shapes.length };
+}
 
 function readConnection(): Connection | null {
   if (typeof window === "undefined") return null;
@@ -94,8 +112,18 @@ async function runCommand(editor: Editor, command: CanvasCommand) {
   const payload = command.payload || {};
   switch (command.action) {
     case "snapshot": return { summary: compactState(editor), snapshot: getSnapshot(editor.store) };
-    case "create": editor.createShapes((Array.isArray(payload) ? payload : [payload]).map(normalizeText)); return { created: true };
-    case "update": editor.updateShapes((Array.isArray(payload) ? payload : [payload]).map(normalizeText)); return { updated: true };
+    case "create": {
+      const shapes = (Array.isArray(payload) ? payload : [payload]).map(normalizeText);
+      return createShapesSafely(editor, shapes);
+    }
+    case "update": {
+      const shapes = (Array.isArray(payload) ? payload : [payload]).map(normalizeText);
+      for (let index = 0; index < shapes.length; index += MAX_SHAPES_PER_BATCH) {
+        editor.updateShapes(shapes.slice(index, index + MAX_SHAPES_PER_BATCH));
+        await yieldToBrowser();
+      }
+      return { updated: shapes.length };
+    }
     case "delete": editor.deleteShapes(Array.isArray(payload) ? payload : payload.ids || [payload.id]); return { deleted: true };
     case "clear": editor.deleteShapes([...editor.getCurrentPageShapeIds()]); return { cleared: true };
     case "image": return placeImage(editor, payload);
@@ -104,7 +132,14 @@ async function runCommand(editor: Editor, command: CanvasCommand) {
       const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
       return await new AsyncFunction("editor", "tldraw", "payload", `"use strict";\n${payload.code}`)(
         editor,
-        { createShapeId, createAssetId: AssetRecordType.createId, getSnapshot, toRichText, placeImage: (input: any) => placeImage(editor, input) },
+        {
+          createShapeId,
+          createAssetId: AssetRecordType.createId,
+          getSnapshot,
+          toRichText,
+          placeImage: (input: any) => placeImage(editor, input),
+          createShapesSafely: (shapes: TLShapePartial[]) => createShapesSafely(editor, shapes),
+        },
         payload,
       );
     }

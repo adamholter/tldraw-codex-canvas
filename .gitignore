@@ -9,6 +9,6 @@ dist
 .DS_Store
 *.log
 tsconfig.tsbuildinfo
-.qa-codex-canvas.png
+.qa-*.png
 .env*
 !.env.example

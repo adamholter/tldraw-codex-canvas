@@ -44,6 +44,20 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    resolve: {
+      dedupe: [
+        "react",
+        "react-dom",
+        "tldraw",
+        "@tldraw/editor",
+        "@tldraw/state",
+        "@tldraw/state-react",
+        "@tldraw/store",
+        "@tldraw/tlschema",
+        "@tldraw/utils",
+        "@tldraw/validate",
+      ],
+    },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
