@@ -78,6 +78,7 @@ const server = createServer(async (request, response) => {
       service: "t3-code-ultralight-browser-fork",
       status: bridge.bridge.ready ? "ready" : "starting",
       websocketPath: `/codex/${token}/ws`,
+      defaultCwd: root,
       allowedOrigins,
       allowLoopbackOrigins: true,
     });
